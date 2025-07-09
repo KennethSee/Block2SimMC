@@ -1,0 +1,22 @@
+[
+  {
+    "name": "NoDoubleDequeue",
+    "category": "safety",
+    "formula": "G( !(dequeue(tx) && dequeue(tx)) )"
+  },
+  {
+    "name": "PriorityRespected",
+    "category": "safety",
+    "formula": "G( enqueue(tx1) && enqueue(tx2) && priority(tx2) < priority(tx1) -> ! (dequeue(tx1) before dequeue(tx2)) )"
+  },
+  {
+    "name": "FIFOOnTie",
+    "category": "safety",
+    "formula": "G( samePriority(tx1,tx2) && earlierDayTime(tx1,tx2) -> ! (dequeue(tx2) before dequeue(tx1)) )"
+  },
+  {
+    "name": "EnqueueLeadsToDequeue",
+    "category": "liveness",
+    "formula": "G( enqueue(tx) -> F dequeue(tx) )"
+  }
+]
