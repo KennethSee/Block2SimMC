@@ -1,75 +1,62 @@
-# adapter_bounding.py
-
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Set, Tuple
 
 @dataclass(frozen=True)
 class State:
+    """A hashable wrapper around whatever snapshot_fn returns."""
     data: Any
 
 class AdapterBounding:
     """
-    Generic Adapter & Bounding.
+    A minimal Adapter & Bounding.
 
-    Users supply:
-      - impl_cls            : the class under test
-      - constructor_args    : args to build impl_cls()
-      - constructor_kwargs  : kwargs to build impl_cls()
-      - actions             : list of { name, params, label, guard }
-      - snapshot_fn         : Callable(inst) -> hashable state
-      - load_fn             : Callable(inst, state) -> None
-      - bounds              : any user metadata
+    :param impl_cls:       class under test (must have a no-arg constructor)
+    :param snapshot_fn:    fn(inst) -> hashable state
+    :param load_fn:        fn(inst, state) -> None
+    :param method_bounds:  dict of
+        method_name -> {
+          'args_generator': Callable[[], Iterable[Tuple]], 
+          'label':          Optional[str]
+        }
     """
 
     def __init__(
         self,
         impl_cls: Any,
-        constructor_args: Tuple[Any, ...],
-        constructor_kwargs: Dict[str, Any],
-        actions: List[Dict[str, Any]],
         snapshot_fn: Callable[[Any], Any],
-        load_fn: Callable[[Any, Any], None],
-        bounds: Dict[str, Any] = None
+        load_fn:     Callable[[Any, Any], None],
+        method_bounds: Dict[str, Dict[str, Any]]
     ):
         self.impl_cls      = impl_cls
-        self.cargs         = constructor_args
-        self.ckwargs       = constructor_kwargs
-        self.actions       = actions
         self.snapshot_fn   = snapshot_fn
         self.load_fn       = load_fn
-        self.bounds        = bounds or {}
+        self.method_bounds = method_bounds
 
     def initial_states(self) -> Iterable[State]:
-        inst      = self.impl_cls(*self.cargs, **self.ckwargs)
-        snapshot  = self.snapshot_fn(inst)
-        yield State(data=snapshot)
+        inst     = self.impl_cls()
+        snap     = self.snapshot_fn(inst)
+        yield State(snap)
 
     def successors(self, state: State) -> Iterable[Tuple[State, Set[str]]]:
-        # Rehydrate instance
-        base = self.impl_cls(*self.cargs, **self.ckwargs)
+        base = self.impl_cls()
         self.load_fn(base, state.data)
 
-        for action in self.actions:
-            name   = action['name']
-            params = action.get('params', [()])
-            label  = action.get('label', name)
-            guard  = action.get('guard', lambda inst, args: True)
+        for method_name, cfg in self.method_bounds.items():
+            gen    = cfg['args_generator']
+            label  = cfg.get('label', method_name)
+            guard  = cfg.get('guard', lambda inst,args: True)
 
-            for args in params:
+            for args in gen():
+                # apply guard *before* rehydrating for performance
                 if not guard(base, args):
                     continue
 
-                # Fresh instance for each transition
-                inst = self.impl_cls(*self.cargs, **self.ckwargs)
+                inst = self.impl_cls()
                 self.load_fn(inst, state.data)
-
-                # Invoke action
-                method = getattr(inst, name)
                 try:
-                    method(*args)
+                    getattr(inst, method_name)(*args)
                 except Exception:
                     continue
 
-                # Record next state
-                next_snap = self.snapshot_fn(inst)
-                yield State(data=next_snap), {label}
+                new_snap = self.snapshot_fn(inst)
+                yield State(new_snap), {label}
