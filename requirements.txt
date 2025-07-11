@@ -1,0 +1,3 @@
+PSSimPy==0.1.4
+pyModelChecking==1.3.4
+solidity-parser==0.1.1
